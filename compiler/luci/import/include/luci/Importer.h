@@ -43,6 +43,8 @@ public:
 
 public:
   std::unique_ptr<loco::Graph> import(const circle::Model *model) const;
+  std::unique_ptr<loco::Graph> import(const circle::Model *model,
+                                      luci::IndexNodeFinder *nodefinder) const;
   std::unique_ptr<Module> importModule(const circle::Model *model) const;
 
 private:

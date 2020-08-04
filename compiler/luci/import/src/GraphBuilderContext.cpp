@@ -35,6 +35,7 @@ void IndexNodeFinder::enroll(TensorIndex idx, CircleNode *node)
   }
 
   _table[idx] = node;
+  _rtable[node] = idx;
 }
 
 CircleNode *IndexNodeFinder::node(TensorIndex idx) const
@@ -43,6 +44,14 @@ CircleNode *IndexNodeFinder::node(TensorIndex idx) const
 
   // dangle output node may exist that are not enrolled
   return (iter != _table.end()) ? iter->second : nullptr;
+}
+
+TensorIndex IndexNodeFinder::tidx(const CircleNode *node) const
+{
+  MapNodeIndex_t::const_iterator iter = _rtable.find(node);
+
+  // dangle output node may exist that are not enrolled
+  return (iter != _rtable.end()) ? iter->second : 0;
 }
 
 void IndexTensorOutputs::enroll(TensorIndex idx)

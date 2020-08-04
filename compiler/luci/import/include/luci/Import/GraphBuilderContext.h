@@ -41,11 +41,14 @@ public:
   void enroll(TensorIndex idx, CircleNode *node);
 
   CircleNode *node(TensorIndex idx) const;
+  TensorIndex tidx(const CircleNode *node) const;
 
 private:
   using MapIndexNode_t = std::map<TensorIndex, CircleNode *>;
+  using MapNodeIndex_t = std::map<const CircleNode *, TensorIndex>;
 
   MapIndexNode_t _table;
+  MapNodeIndex_t _rtable;
 };
 
 /**

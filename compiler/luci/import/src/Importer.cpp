@@ -36,19 +36,18 @@
 namespace
 {
 
-void convert_graph(const luci::GraphBuilderSource &source, luci::CircleReader &reader,
-                   loco::Graph *graph)
+void convert_graph(const luci::GraphBuilderSource &source, luci::GraphBuilderContext &gb_context)
 {
   LOGGER(l);
 
-  auto nodefinder = std::make_unique<luci::IndexNodeFinder>();
-  auto tensoroutputs = std::make_unique<luci::IndexTensorOutputs>();
+  auto reader = gb_context.reader();
+  auto graph = gb_context.graph();
+  auto tensoroutputs = gb_context.tensoroutputs();
+  auto nodefinder = gb_context.nodefinder();
 
-  luci::GraphBuilderContext gb_context(graph, &reader, nodefinder.get(), tensoroutputs.get());
-
-  const auto &operators = reader.operators();
-  const auto &tensors = reader.tensors();
-  auto tensors_ptr = reader.tensors_ptr();
+  const auto &operators = reader->operators();
+  const auto &tensors = reader->tensors();
+  auto tensors_ptr = reader->tensors_ptr();
   assert(tensors_ptr != nullptr);
 
   // build a cache to identify if a tensor is output of an operator
@@ -68,7 +67,7 @@ void convert_graph(const luci::GraphBuilderSource &source, luci::CircleReader &r
   // graph inputs; there are no input nodes in TFlite but just Tensors
   // creating virtual input nodes will make possible to connect nodes that uses them
   // all attributes of tensor should be copied to CircleInput node
-  for (const auto input : reader.inputs())
+  for (const auto input : reader->inputs())
   {
     auto input_node = graph->nodes()->create<luci::CircleInput>();
     assert(input_node != nullptr);
@@ -120,26 +119,26 @@ void convert_graph(const luci::GraphBuilderSource &source, luci::CircleReader &r
   for (uint32_t i = 0; i < operators.size(); ++i)
   {
     const circle::OperatorT &op = *operators[i];
-    circle::BuiltinOperator builtincode = reader.builtin_code(op);
+    circle::BuiltinOperator builtincode = reader->builtin_code(op);
 
     if (const auto *builder = source.lookup(builtincode))
     {
-      luci::GraphBuilder::ValidateArgs args(op, reader);
+      luci::GraphBuilder::ValidateArgs args(op, *reader);
       if (!builder->validate(args))
       {
-        throw oops::UserExn("Invalid operator", reader.opcode_name(op));
+        throw oops::UserExn("Invalid operator", reader->opcode_name(op));
       }
 
       builder->build(op, &gb_context);
     }
     else
     {
-      throw oops::UserExn("Not supported", reader.opcode_name(op));
+      throw oops::UserExn("Not supported", reader->opcode_name(op));
     }
   }
 
   // graph outputs
-  for (auto output : reader.outputs())
+  for (auto output : reader->outputs())
   {
     const circle::TensorT &tensor = *tensors[output];
 
@@ -190,6 +189,18 @@ void convert_graph(const luci::GraphBuilderSource &source, luci::CircleReader &r
   }
 }
 
+void convert_graph(const luci::GraphBuilderSource &source, luci::CircleReader &reader,
+                   loco::Graph *graph)
+{
+
+  auto nodefinder = std::make_unique<luci::IndexNodeFinder>();
+  auto tensoroutputs = std::make_unique<luci::IndexTensorOutputs>();
+
+  luci::GraphBuilderContext gb_context(graph, &reader, nodefinder.get(), tensoroutputs.get());
+
+  convert_graph(source, gb_context);
+}
+
 class ValidateCollector final : public loco::ErrorListener
 {
 public:
@@ -210,7 +221,8 @@ Importer::Importer()
   // DO NOTHING
 }
 
-std::unique_ptr<loco::Graph> Importer::import(const circle::Model *model) const
+std::unique_ptr<loco::Graph> Importer::import(const circle::Model *model,
+                                              luci::IndexNodeFinder *nodefinder) const
 {
   auto graph = loco::make_graph();
 
@@ -233,8 +245,12 @@ std::unique_ptr<loco::Graph> Importer::import(const circle::Model *model) const
   if (!reader.select_subgraph(0))
     return nullptr;
 
-  // Convert circle::Model to loco::Graph
-  convert_graph(*source_ptr, reader, graph.get());
+  // Convert circle::Model to loco::Graph  auto nodefinder =
+  // std::make_unique<luci::IndexNodeFinder>();
+  luci::IndexTensorOutputs tensoroutputs;
+  luci::GraphBuilderContext gb_context(graph.get(), &reader, nodefinder, &tensoroutputs);
+
+  convert_graph(*source_ptr, gb_context);
 
   LOGGER(l);
   VERBOSE(l, 3) << "--- graph dump begin -------------------------------------------";
@@ -245,6 +261,11 @@ std::unique_ptr<loco::Graph> Importer::import(const circle::Model *model) const
   assert(loco::valid(graph.get(), std::make_unique<ValidateCollector>()));
 
   return graph;
+}
+
+std::unique_ptr<loco::Graph> Importer::import(const circle::Model *model) const {
+  luci::IndexNodeFinder nodefinder;
+  return import(model, &nodefinder);
 }
 
 std::unique_ptr<Module> Importer::importModule(const circle::Model *model) const
